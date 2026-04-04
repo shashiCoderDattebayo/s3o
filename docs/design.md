@@ -73,6 +73,21 @@ Why timeout: no infinite queuing. Fail fast with Timeout error after
   If queue wait > timeout → fail with Timeout error
 ```
 
+Queue depth is unbounded — there is no max queue depth that rejects requests
+early. This is deliberate: our primary callers are ML training jobs flushing
+checkpoints. A checkpoint save should wait, not get rejected. The job can't
+retry later — it needs to flush now.
+
+If the queue builds up, the `s3.pool.queued` gauge shows it. If a request
+waits longer than `timeout`, it fails with `ErrorKind::Timeout`. This
+bounds the maximum wait time without bounding the queue depth.
+
+Trade-off: a burst of 10,000 requests queues all 10,000 (~4 MB of suspended
+futures). If they all timeout, you get 10,000 errors within a `timeout`
+window. For service workloads that need fast rejection (HTTP 503), a
+`max_queue_depth` config could be added later — but for checkpoint workloads,
+unbounded queue with timeout is the right default.
+
 ## Metrics
 
 ```
