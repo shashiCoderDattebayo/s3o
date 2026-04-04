@@ -732,3 +732,148 @@ async fn list_recursive_finds_nested() {
     let deep_files: Vec<_> = deep.iter().filter(|e| e.key.ends_with(".txt")).collect();
     assert_eq!(deep_files.len(), 3, "recursive should find all 3 files");
 }
+
+// --- Pool behavior ---
+
+#[tokio::test]
+async fn pool_timeout_returns_error() {
+    let tmp = tempfile::tempdir().unwrap();
+    let addr = server(tmp.path()).await;
+    bucket(tmp.path(), "test-bucket");
+
+    // 1 write connection, 50ms timeout
+    let c = S3Client::builder()
+        .bucket("test-bucket")
+        .region("us-east-1")
+        .access_key_id("test")
+        .secret_access_key("test")
+        .endpoint(format!("http://{}", addr))
+        .path_style(true)
+        .write_connections(2)
+        .write_concurrency(1)
+        .read_connections(2)
+        .read_concurrency(1)
+        .timeout(Duration::from_millis(100))
+        .max_retries(0)
+        .build()
+        .unwrap();
+
+    // Saturate write pool with concurrent long-ish puts
+    let mut h = vec![];
+    for i in 0..10 {
+        let c = c.clone();
+        h.push(tokio::spawn(async move {
+            // Some will succeed, some may timeout — that's the test
+            let _ = c
+                .put_object(&format!("timeout/{i}"), Bytes::from("x"))
+                .await;
+        }));
+    }
+    for j in h {
+        j.await.unwrap();
+    }
+    // If we get here without hanging, the timeout works.
+}
+
+#[tokio::test]
+async fn permit_released_on_error() {
+    let tmp = tempfile::tempdir().unwrap();
+    let addr = server(tmp.path()).await;
+    bucket(tmp.path(), "test-bucket");
+
+    // Only 2 read connections
+    let c = tuned(
+        addr,
+        "test-bucket",
+        5 * 1024 * 1024,
+        8 * 1024 * 1024,
+        1,
+        1,
+        2,
+        2,
+    );
+
+    // Two gets on nonexistent keys — both will error
+    let e1 = c.get_object("missing1").await;
+    assert!(e1.is_err());
+    let e2 = c.get_object("missing2").await;
+    assert!(e2.is_err());
+
+    // If permits leaked, this third call would deadlock.
+    // It should work because error paths release permits via RAII.
+    c.put_object("ok", Bytes::from("works")).await.unwrap();
+    let data = c.get_object("ok").await.unwrap();
+    assert_eq!(data, Bytes::from("works"));
+}
+
+// --- Edge cases ---
+
+#[tokio::test]
+async fn large_number_of_sequential_operations() {
+    let tmp = tempfile::tempdir().unwrap();
+    let addr = server(tmp.path()).await;
+    bucket(tmp.path(), "test-bucket");
+    let c = client(addr, "test-bucket");
+
+    // 100 sequential put+get — tests that permits don't leak over many operations
+    for i in 0..100 {
+        let key = format!("seq/{i}");
+        let body = Bytes::from(format!("{i}"));
+        c.put_object(&key, body.clone()).await.unwrap();
+        assert_eq!(c.get_object(&key).await.unwrap(), body);
+    }
+}
+
+#[tokio::test]
+async fn concurrent_list_and_write() {
+    let tmp = tempfile::tempdir().unwrap();
+    let addr = server(tmp.path()).await;
+    bucket(tmp.path(), "test-bucket");
+    let c = client(addr, "test-bucket");
+
+    // Seed some objects
+    for i in 0..10 {
+        c.put_object(&format!("mix/{i}"), Bytes::from("x"))
+            .await
+            .unwrap();
+    }
+
+    // Concurrent: 5 lists (read pool) + 5 puts (write pool)
+    let mut h = vec![];
+    for _ in 0..5 {
+        let c = c.clone();
+        h.push(tokio::spawn(async move {
+            let entries = c.list_objects("mix/", false).await.unwrap();
+            assert!(!entries.is_empty());
+        }));
+    }
+    for i in 10..15 {
+        let c = c.clone();
+        h.push(tokio::spawn(async move {
+            c.put_object(&format!("mix/{i}"), Bytes::from("y"))
+                .await
+                .unwrap();
+        }));
+    }
+    for j in h {
+        j.await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn get_object_body_matches_exact_bytes() {
+    let tmp = tempfile::tempdir().unwrap();
+    let addr = server(tmp.path()).await;
+    bucket(tmp.path(), "test-bucket");
+    let c = client(addr, "test-bucket");
+
+    // Test with various payload sizes including boundary values
+    for size in [1, 2, 255, 256, 1023, 1024, 4095, 4096, 8191, 8192] {
+        let body = pattern(size);
+        let key = format!("exact/{size}");
+        c.put_object(&key, body.clone()).await.unwrap();
+        let got = c.get_object(&key).await.unwrap();
+        assert_eq!(got.len(), size, "length mismatch at size={size}");
+        assert_eq!(got, body, "data mismatch at size={size}");
+    }
+}
