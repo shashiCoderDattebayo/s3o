@@ -1,0 +1,18 @@
+[package]
+name = "connection-pool-interview"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1", features = ["sync", "time", "rt-multi-thread", "macros"] }
+
+# To run the template:   cargo test --lib template -- --nocapture
+# To run the solution:   cargo test --lib solution -- --nocapture
+
+[[bin]]
+name = "template"
+path = "template.rs"
+
+[[bin]]
+name = "solution"
+path = "solution.rs"
