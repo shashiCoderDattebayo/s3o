@@ -68,10 +68,12 @@ macro_rules! builder_fn {
         }
     };
 }
+
 impl S3ConfigBuilder {
     pub fn new() -> Self {
         Self::default()
     }
+
     /// Pre-configure for maximum throughput workloads (ML checkpoints, large datasets).
     ///
     /// Sets: 64 MiB chunks, 16x concurrency, 20 connections per pool, 5 min timeout.
@@ -106,6 +108,7 @@ impl S3ConfigBuilder {
         let c = self.validate()?;
         crate::S3Client::from_config(c)
     }
+
     fn validate(self) -> S3Result<S3Config> {
         let required = |v: Option<String>, name: &str| -> S3Result<String> {
             v.filter(|s| !s.is_empty())

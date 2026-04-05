@@ -22,6 +22,7 @@ pub struct S3Client {
     config: Arc<S3Config>,
     pool: Pool,
 }
+
 impl S3Client {
     pub fn builder() -> S3ConfigBuilder {
         S3ConfigBuilder::new()
@@ -75,6 +76,7 @@ impl S3Client {
         .instrument(span)
         .await
     }
+
     pub async fn get_object(&self, key: &str) -> S3Result<Bytes> {
         let span = tracing::info_span!("s3.get", bucket = %self.bucket, key);
         async {
@@ -100,6 +102,7 @@ impl S3Client {
         .instrument(span)
         .await
     }
+
     pub async fn delete_object(&self, key: &str) -> S3Result<()> {
         let span = tracing::info_span!("s3.delete", bucket = %self.bucket, key);
         async {
@@ -121,6 +124,7 @@ impl S3Client {
         .instrument(span)
         .await
     }
+
     pub async fn head_object(&self, key: &str) -> S3Result<ObjectMetadata> {
         let span = tracing::info_span!("s3.head", bucket = %self.bucket, key);
         async {
@@ -132,6 +136,7 @@ impl S3Client {
         .instrument(span)
         .await
     }
+
     /// List objects under `prefix`. When `recursive` is false (default-like behavior),
     /// only immediate children are returned (uses delimiter="/"). When true, all
     /// objects under the prefix are returned regardless of depth.
@@ -169,6 +174,7 @@ impl S3Client {
                 .and_then(|t| chrono::DateTime::from_timestamp(t.secs(), t.subsec_nanos())),
         })
     }
+
     async fn simple_put(&self, key: &str, body: Bytes, m: &mut OpMetrics) -> S3Result<()> {
         let (_p, qw) = self.pool.write().await?;
         m.add_queue_wait(qw);
@@ -189,6 +195,7 @@ impl S3Client {
         metrics::ttfb("put", elapsed); // PUT response = headers only, so elapsed ≈ TTFB
         r
     }
+
     async fn simple_get(&self, key: &str, m: &mut OpMetrics) -> S3Result<Bytes> {
         let (_p, qw) = self.pool.read().await?;
         m.add_queue_wait(qw);
@@ -214,6 +221,7 @@ impl S3Client {
         metrics::http("get", t.elapsed().as_secs_f64(), r.is_ok()); // total including body read
         r
     }
+
     async fn paginated_list(&self, prefix: &str, recursive: bool) -> S3Result<Vec<ObjectEntry>> {
         let mut entries = Vec::new();
         let mut token: Option<String> = None;
@@ -434,6 +442,7 @@ impl S3Client {
         Ok(buf.freeze())
     }
 }
+
 fn finish<T>(m: &mut OpMetrics, r: &S3Result<T>) {
     match r {
         Ok(_) => m.ok(),
@@ -444,6 +453,7 @@ fn finish<T>(m: &mut OpMetrics, r: &S3Result<T>) {
 fn checksum(config: &S3Config) -> Option<ChecksumAlgorithm> {
     config.upload_checksum.then_some(ChecksumAlgorithm::Crc32C)
 }
+
 impl std::fmt::Debug for S3Client {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("S3Client")

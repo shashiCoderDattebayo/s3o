@@ -16,6 +16,7 @@ pub(crate) struct Permit {
     active: Arc<AtomicU64>,
     pool: &'static str,
 }
+
 impl Drop for Permit {
     fn drop(&mut self) {
         let prev = self.active.fetch_sub(1, Ordering::Relaxed);
@@ -29,6 +30,7 @@ pub(crate) struct BulkPermit {
     pool: &'static str,
     count: u64,
 }
+
 impl Drop for BulkPermit {
     fn drop(&mut self) {
         let prev = self.active.fetch_sub(self.count, Ordering::Relaxed);
@@ -44,6 +46,7 @@ struct HalfPool {
     name: &'static str,
     timeout: Duration,
 }
+
 impl HalfPool {
     fn new(capacity: usize, name: &'static str, timeout: Duration) -> Self {
         Self {
@@ -54,6 +57,7 @@ impl HalfPool {
             timeout,
         }
     }
+
     async fn acquire(&self) -> S3Result<(Permit, Duration)> {
         let start = Instant::now();
         self.queued.fetch_add(1, Ordering::Relaxed);
@@ -81,6 +85,7 @@ impl HalfPool {
             start.elapsed(),
         ))
     }
+
     async fn acquire_bulk(&self, n: usize) -> S3Result<(BulkPermit, Duration)> {
         let start = Instant::now();
         self.queued.fetch_add(1, Ordering::Relaxed);
@@ -120,6 +125,7 @@ pub(crate) struct Pool {
     read: HalfPool,
     write: HalfPool,
 }
+
 impl Pool {
     pub fn new(read_connections: usize, write_connections: usize, timeout: Duration) -> Self {
         Self {
@@ -131,14 +137,17 @@ impl Pool {
     pub async fn read(&self) -> S3Result<(Permit, Duration)> {
         self.read.acquire().await
     }
+
     /// Single write permit (small PUT, DELETE).
     pub async fn write(&self) -> S3Result<(Permit, Duration)> {
         self.write.acquire().await
     }
+
     /// Reserve N read permits for a range download.
     pub async fn read_bulk(&self, n: usize) -> S3Result<(BulkPermit, Duration)> {
         self.read.acquire_bulk(n).await
     }
+
     /// Reserve N write permits for a multipart upload.
     pub async fn write_bulk(&self, n: usize) -> S3Result<(BulkPermit, Duration)> {
         self.write.acquire_bulk(n).await
