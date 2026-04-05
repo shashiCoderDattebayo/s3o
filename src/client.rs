@@ -183,7 +183,9 @@ impl S3Client {
             .await
             .map(|_| ())
             .map_err(|e| classify(&e));
-        metrics::http("put", t.elapsed().as_secs_f64(), r.is_ok());
+        let elapsed = t.elapsed().as_secs_f64();
+        metrics::http("put", elapsed, r.is_ok());
+        metrics::ttfb("put", elapsed); // PUT response = headers only, so elapsed ≈ TTFB
         r
     }
     async fn simple_get(&self, key: &str, m: &mut OpMetrics) -> S3Result<Bytes> {
@@ -198,12 +200,18 @@ impl S3Client {
             .send()
             .await
             .map_err(|e| classify(&e));
-        metrics::http("get", t.elapsed().as_secs_f64(), r.is_ok());
-        r?.body
-            .collect()
-            .await
-            .map(|b| b.into_bytes())
-            .map_err(|e| S3Error::backend(ErrorKind::Other, format!("body: {e}")))
+        metrics::ttfb("get", t.elapsed().as_secs_f64()); // send() returns at first response byte
+        let r = match r {
+            Ok(output) => output
+                .body
+                .collect()
+                .await
+                .map(|b| b.into_bytes())
+                .map_err(|e| S3Error::backend(ErrorKind::Other, format!("body: {e}"))),
+            Err(e) => Err(e),
+        };
+        metrics::http("get", t.elapsed().as_secs_f64(), r.is_ok()); // total including body read
+        r
     }
     async fn paginated_list(&self, prefix: &str, recursive: bool) -> S3Result<Vec<ObjectEntry>> {
         let mut entries = Vec::new();
@@ -303,7 +311,9 @@ impl S3Client {
                             .send()
                             .await
                             .map_err(|e| classify(&e));
-                        metrics::http("put_part", t.elapsed().as_secs_f64(), r.is_ok());
+                        let elapsed = t.elapsed().as_secs_f64();
+                        metrics::http("put_part", elapsed, r.is_ok());
+                        metrics::ttfb("put_part", elapsed);
                         let etag = r?
                             .e_tag
                             .ok_or_else(|| S3Error::backend(ErrorKind::Other, "no etag"))?;
@@ -390,7 +400,7 @@ impl S3Client {
                             .send()
                             .await
                             .map_err(|e| classify(&e));
-                        metrics::http("get_range", t.elapsed().as_secs_f64(), r.is_ok());
+                        metrics::ttfb("get_range", t.elapsed().as_secs_f64());
                         let data =
                             r?.body
                                 .collect()
@@ -399,6 +409,7 @@ impl S3Client {
                                 .map_err(|e| {
                                     S3Error::backend(ErrorKind::Other, format!("range body: {e}"))
                                 })?;
+                        metrics::http("get_range", t.elapsed().as_secs_f64(), true);
                         Ok((idx, data))
                     }
                     .instrument(span)

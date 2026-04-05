@@ -48,6 +48,13 @@ impl OpMetrics {
         if self.bytes_recv > 0 {
             metrics::counter!("s3.op.bytes_recv", "op" => self.op).increment(self.bytes_recv);
         }
+        // bytes rate = total bytes / duration (excluding queue wait)
+        let duration = self.start.elapsed().saturating_sub(self.queue_wait);
+        let total_bytes = self.bytes_sent + self.bytes_recv;
+        if total_bytes > 0 && !duration.is_zero() {
+            let rate = total_bytes as f64 / duration.as_secs_f64();
+            metrics::gauge!("s3.op.bytes_rate", "op" => self.op).set(rate);
+        }
     }
 
     pub fn err(&mut self, e: &S3Error) {
@@ -86,4 +93,9 @@ pub(crate) fn http(op: &'static str, secs: f64, ok: bool) {
     let s = if ok { "ok" } else { "err" };
     metrics::counter!("s3.http.total", "op" => op).increment(1);
     metrics::histogram!("s3.http.duration", "op" => op, "status" => s).record(secs);
+}
+
+/// Time to first byte — from request send to response headers received.
+pub(crate) fn ttfb(op: &'static str, secs: f64) {
+    metrics::histogram!("s3.http.ttfb", "op" => op).record(secs);
 }
