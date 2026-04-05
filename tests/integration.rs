@@ -877,3 +877,40 @@ async fn get_object_body_matches_exact_bytes() {
         assert_eq!(got, body, "data mismatch at size={size}");
     }
 }
+
+#[tokio::test]
+async fn upload_checksum_enabled_roundtrip() {
+    let tmp = tempfile::tempdir().unwrap();
+    let addr = server(tmp.path()).await;
+    bucket(tmp.path(), "test-bucket");
+
+    let c = S3Client::builder()
+        .bucket("test-bucket")
+        .region("us-east-1")
+        .access_key_id("test")
+        .secret_access_key("test")
+        .endpoint(format!("http://{}", addr))
+        .path_style(true)
+        .upload_checksum(true)
+        .max_retries(0)
+        .build()
+        .unwrap();
+
+    let body = pattern(4096);
+    c.put_object("cksum", body.clone()).await.unwrap();
+    assert_eq!(c.get_object("cksum").await.unwrap(), body);
+}
+
+#[tokio::test]
+async fn upload_checksum_disabled_roundtrip() {
+    let tmp = tempfile::tempdir().unwrap();
+    let addr = server(tmp.path()).await;
+    bucket(tmp.path(), "test-bucket");
+
+    // Default: checksum off
+    let c = client(addr, "test-bucket");
+
+    let body = pattern(4096);
+    c.put_object("nocksum", body.clone()).await.unwrap();
+    assert_eq!(c.get_object("nocksum").await.unwrap(), body);
+}
