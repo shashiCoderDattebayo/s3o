@@ -20,6 +20,8 @@ pub struct S3Config {
     pub(crate) write_connections: usize,
     pub(crate) read_concurrency: usize,
     pub(crate) write_concurrency: usize,
+    // Integrity
+    pub(crate) upload_checksum: bool,
     // Timeouts & retry
     pub(crate) timeout: Duration,
     pub(crate) max_retries: usize,
@@ -48,6 +50,7 @@ pub struct S3ConfigBuilder {
     write_connections: Option<usize>,
     read_concurrency: Option<usize>,
     write_concurrency: Option<usize>,
+    upload_checksum: Option<bool>,
     timeout: Option<Duration>,
     max_retries: Option<usize>,
 }
@@ -96,6 +99,7 @@ impl S3ConfigBuilder {
     builder_fn!(write_connections, usize);
     builder_fn!(read_concurrency, usize);
     builder_fn!(write_concurrency, usize);
+    builder_fn!(upload_checksum, bool);
     builder_fn!(timeout, Duration);
     builder_fn!(max_retries, usize);
     pub fn build(self) -> S3Result<crate::S3Client> {
@@ -150,6 +154,7 @@ impl S3ConfigBuilder {
             write_connections,
             read_concurrency,
             write_concurrency,
+            upload_checksum: self.upload_checksum.unwrap_or(false),
             timeout: self.timeout.unwrap_or(TIMEOUT),
             max_retries: self.max_retries.unwrap_or(RETRIES),
         })

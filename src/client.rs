@@ -179,7 +179,7 @@ impl S3Client {
             .bucket(&self.bucket)
             .key(key)
             .body(ByteStream::from(body))
-            .checksum_algorithm(ChecksumAlgorithm::Crc32C)
+            .set_checksum_algorithm(checksum(&self.config))
             .send()
             .await
             .map(|_| ())
@@ -309,7 +309,7 @@ impl S3Client {
                             .upload_id(&uid)
                             .part_number(pn)
                             .body(ByteStream::from(chunk))
-                            .checksum_algorithm(ChecksumAlgorithm::Crc32C)
+                            .set_checksum_algorithm(checksum(&this.config))
                             .send()
                             .await
                             .map_err(|e| classify(&e));
@@ -439,6 +439,10 @@ fn finish<T>(m: &mut OpMetrics, r: &S3Result<T>) {
         Ok(_) => m.ok(),
         Err(e) => m.err(e),
     }
+}
+
+fn checksum(config: &S3Config) -> Option<ChecksumAlgorithm> {
+    config.upload_checksum.then_some(ChecksumAlgorithm::Crc32C)
 }
 impl std::fmt::Debug for S3Client {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
