@@ -6,7 +6,7 @@ use crate::types::{ObjectEntry, ObjectMetadata};
 use aws_credential_types::Credentials;
 use aws_sdk_s3::config::{BehaviorVersion, Region};
 use aws_sdk_s3::primitives::ByteStream;
-use aws_sdk_s3::types::{CompletedMultipartUpload, CompletedPart as AwsPart};
+use aws_sdk_s3::types::{ChecksumAlgorithm, CompletedMultipartUpload, CompletedPart as AwsPart};
 use aws_sdk_s3::Client;
 use bytes::Bytes;
 use futures::StreamExt;
@@ -179,6 +179,7 @@ impl S3Client {
             .bucket(&self.bucket)
             .key(key)
             .body(ByteStream::from(body))
+            .checksum_algorithm(ChecksumAlgorithm::Crc32C)
             .send()
             .await
             .map(|_| ())
@@ -308,6 +309,7 @@ impl S3Client {
                             .upload_id(&uid)
                             .part_number(pn)
                             .body(ByteStream::from(chunk))
+                            .checksum_algorithm(ChecksumAlgorithm::Crc32C)
                             .send()
                             .await
                             .map_err(|e| classify(&e));

@@ -32,6 +32,7 @@ S3Client
 │       └── multipart parts rotate within reserved permits via buffer_unordered
 ├── OpMetrics (per-operation: latency, duration, queue_wait, bytes, errors)
 ├── Tracing spans (per-operation + per-part)
+├── CRC32C checksums on all uploads (simple PUT + multipart parts)
 └── aws-sdk-s3::Client (SigV4, retry, TLS, HTTP, connection pool)
 ```
 
@@ -106,10 +107,12 @@ latency  = [── queue_wait ──][── duration ──]
 | s3.op.{total,ok,err,cancelled} | Counter | Success/failure/cancel rates |
 | s3.op.bytes_{sent,recv} | Counter | Throughput |
 | s3.op.err{kind=...} | Counter | Error breakdown for alerts |
-| s3.http.{total,duration} | Histogram | Per-HTTP-call latency |
+| s3.op.bytes_rate | Gauge | Bytes/sec throughput (excludes queue wait) |
+| s3.http.{total,duration} | Histogram | Per-HTTP-call total time |
+| s3.http.ttfb | Histogram | Time to first byte (request send → response headers) |
 
 Diagnosis: if `duration` is stable but `latency` spikes → client saturated (increase connections).
-If both spike → backend slow.
+If both spike → backend slow. If `ttfb` is high but `duration` is normal → network latency, not transfer speed.
 
 ## Defaults
 
@@ -133,6 +136,7 @@ Config validation prevents deadlock: `read_connections >= read_concurrency + 1`.
 | xDS endpoint discovery | `ResolveEndpoint` trait (per-request) | ~100 LoC |
 | p2c load balancing | Implement in endpoint resolver | ~50 LoC |
 | Adaptive retry | `RetryConfig::adaptive()` | 3 LoC |
-| Upload checksums | `ChecksumAlgorithm::Crc32C` on SDK calls | 10 LoC |
 
 Zero changes to pool/metrics/client code needed for any of these.
+
+Upload checksums (CRC32C), TTFB metrics, and bytes rate are already implemented.
